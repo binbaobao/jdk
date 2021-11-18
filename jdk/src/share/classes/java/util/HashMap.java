@@ -253,6 +253,11 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * than 2 and should be at least 8 to mesh with assumptions in
      * tree removal about conversion back to plain bins upon
      * shrinkage.
+     *
+     * 使用树而不是列表的 bin 计数阈值。
+     * 将元素添加到至少具有这么多节点的 bin 时，bin 会转换为树。该值必须大于 2 且至少应为 8，
+     * 以与树移除中关于在收缩时转换回普通 bin 的假设相匹配。
+     *
      */
     static final int TREEIFY_THRESHOLD = 8;
 
@@ -268,6 +273,13 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * (Otherwise the table is resized if too many nodes in a bin.)
      * Should be at least 4 * TREEIFY_THRESHOLD to avoid conflicts
      * between resizing and treeification thresholds.
+     *
+     *  存储箱可树化的最小表容量。
+     * （否则，如果bin中的节点太多，则会调整表的大小。）
+     *  应至少为4*TreeFiy_阈值，以避免冲突
+     *  在调整大小和树化阈值之间。
+     *
+     *
      */
     static final int MIN_TREEIFY_CAPACITY = 64;
 
@@ -332,6 +344,22 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * cheapest possible way to reduce systematic lossage, as well as
      * to incorporate impact of the highest bits that would otherwise
      * never be used in index calculations because of table bounds.
+     *
+     * 计算key.hashCode（）并传播（XOR）更高的散列位
+     * 降低。由于该表使用两个掩蔽的幂，因此
+     * 仅在当前掩码上方的位中变化的哈希将
+     * 总是碰撞。（已知示例中包括一组浮动键
+     * 在小表格中保持连续的整数。）所以我们
+     * 应用扩展高位影响的变换
+     * 向下。在速度、实用性和安全性之间需要权衡
+     * 钻头摊铺质量。因为许多常见的散列集
+     * 已经合理分配（因此不受益于
+     * 因为我们用树来处理大量的
+     * 在箱子中发生碰撞时，我们只是对箱子中的一些移位位进行异或运算
+     * 减少系统性损失的最便宜的方法，以及
+     * 合并最高位的影响，否则
+     * 由于表边界的原因，请勿在索引计算中使用。
+     *
      */
     static final int hash(Object key) {
         int h;
@@ -624,33 +652,57 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
                    boolean evict) {
         Node<K,V>[] tab; Node<K,V> p; int n, i;
-        if ((tab = table) == null || (n = tab.length) == 0)
+        // 如果map还是空的，则先开始初始化，table是map中用于存放索引的表
+        if ((tab = table) == null || (n = tab.length) == 0) {
             n = (tab = resize()).length;
-        if ((p = tab[i = (n - 1) & hash]) == null)
+        }
+        // 使用hash与数组长度减一的值进行异或得到分散的数组下标，预示着按照计算现在的
+        // key会存放到这个位置上，如果这个位置上没有值，那么直接新建k-v节点存放
+        // 其中长度n是一个2的幂次数
+        if ((p = tab[i = (n - 1) & hash]) == null){
             tab[i] = newNode(hash, key, value, null);
+        }
+        // 如果走到else这一步，说明key索引到的数组位置上已经存在内容，即出现了碰撞
+        // 这个时候需要更为复杂处理碰撞的方式来处理，如链表和树
         else {
             Node<K,V> e; K k;
+
+            // 其中p已经在上面通过计算索引找到了，即发生碰撞那一个节点
+            // 比较，如果该节点的hash和当前的hash相等，而且key也相等或者
+            // 在key不等于null的情况下key的内容也相等，则说明两个key是
+            // 一样的，则将当前节点p用临时节点e保存
             if (p.hash == hash &&
                 ((k = p.key) == key || (key != null && key.equals(k))))
                 e = p;
+            // 如果当前节点p是（红黑）树类型的节点，则需要特殊处理
+            // 如果是树，则说明碰撞已经开始用树来处理，后续的数据结构都是树而非列表了
             else if (p instanceof TreeNode)
+                // 其中this表示当前HashMap, tab为map中的数组
                 e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
             else {
                 for (int binCount = 0; ; ++binCount) {
+                    // 如果当前碰撞到的节点没有后续节点，则直接新建节点并追加
                     if ((e = p.next) == null) {
                         p.next = newNode(hash, key, value, null);
+                        // TREEIFY_THRESHOLD = 8
+                        // 从0开始的，如果到了7则说明满8了，这个时候就需要转
+                        // 重新确定是否是扩容还是转用红黑树了
                         if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
                             treeifyBin(tab, hash);
                         break;
                     }
+                    // 找到了碰撞节点中，key完全相等的节点，则用新节点替换老节点
                     if (e.hash == hash &&
                         ((k = e.key) == key || (key != null && key.equals(k))))
                         break;
                     p = e;
                 }
             }
+            // 此时的e是保存的被碰撞的那个节点，即老节点
             if (e != null) { // existing mapping for key
                 V oldValue = e.value;
+                // onlyIfAbsent是方法的调用参数，表示是否替换已存在的值，
+                // 在默认的put方法中这个值是false，所以这里会用新值替换旧值
                 if (!onlyIfAbsent || oldValue == null)
                     e.value = value;
                 afterNodeAccess(e);
@@ -670,7 +722,11 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * Otherwise, because we are using power-of-two expansion, the
      * elements from each bin must either stay at same index, or move
      * with a power of two offset in the new table.
-     *
+     * 将表格大小初始化或加倍。如果为null，则在中分配
+     * 符合现场阈值中保持的初始容量目标。
+     * 否则，因为我们使用的是二次幂展开，所以
+     * 每个容器中的元素必须保持在同一索引中，或者移动
+     * 在新表中具有二次方偏移。
      * @return the table
      */
     final Node<K,V>[] resize() {
@@ -750,6 +806,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     /**
      * Replaces all linked nodes in bin at index for given hash unless
      * table is too small, in which case resizes instead.
+     * 除非表太小，否则替换给定哈希索引处的 bin 中的所有链接节点，在这种情况下改为调整大小。
      */
     final void treeifyBin(Node<K,V>[] tab, int hash) {
         int n, index; Node<K,V> e;
