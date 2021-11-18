@@ -709,7 +709,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 return oldValue;
             }
         }
+        // map变更性操作计数器
+        // 比如map结构化的变更像内容增减或者rehash，这将直接导致外部map的并发
+        // 迭代引起fail-fast问题，该值就是比较的基础
         ++modCount;
+        // size即map中包括k-v数量的多少
+        // 当map中的内容大小已经触及到扩容阈值时，则需要扩容了
         if (++size > threshold)
             resize();
         afterNodeInsertion(evict);
@@ -722,6 +727,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * Otherwise, because we are using power-of-two expansion, the
      * elements from each bin must either stay at same index, or move
      * with a power of two offset in the new table.
+     *
+     *
      * 将表格大小初始化或加倍。如果为null，则在中分配
      * 符合现场阈值中保持的初始容量目标。
      * 否则，因为我们使用的是二次幂展开，所以
@@ -735,20 +742,34 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         int oldThr = threshold;
         int newCap, newThr = 0;
         if (oldCap > 0) {
+            // MAXIMUM_CAPACITY = 1 << 30 = 1073741824
+            // Integer.MAX_VALUE = (1 << 31) - 1 = 2147483647
+            // 如果已经到了最大容量了，那么就调整扩容的threshold阈值
             if (oldCap >= MAXIMUM_CAPACITY) {
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             }
+            // DEFAULT_INITIAL_CAPACITY = 1 << 4
+            // 否则的话，如果将目前的容量扩充2倍还在允许范围之内，则将容量
+            // 扩充为原来的两倍，并且阈值也为原来的两倍
             else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
                      oldCap >= DEFAULT_INITIAL_CAPACITY)
                 newThr = oldThr << 1; // double threshold
         }
+        // 如果原始（或者初始）容量不大于0，且之前的阈值大于0，则将容量初始化为之前阈值的大小
         else if (oldThr > 0) // initial capacity was placed in threshold
             newCap = oldThr;
-        else {               // zero initial threshold signifies using defaults
+        else {
+            // 执行这里的方法说明，初始参数中容量大小和阈值都不大于0，那么就用
+            // map中的缺省值
+            // DEFAULT_INITIAL_CAPACITY = 1 << 4 = 16
+            // DEFAULT_LOAD_FACTOR = 0.75f// zero initial threshold signifies using defaults
             newCap = DEFAULT_INITIAL_CAPACITY;
             newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
         }
+        // 如果新的阈值没有重新计算，那么先用加载因子计算出值
+        // 如果新的容量大小和阈值大小都未超过限定值，则计算出的值可用，否则
+        // 阈值就限定为容量真正允许的上限即Integer.MAX_VALUE
         if (newThr == 0) {
             float ft = (float)newCap * loadFactor;
             newThr = (newCap < MAXIMUM_CAPACITY && ft < (float)MAXIMUM_CAPACITY ?
@@ -810,21 +831,37 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     final void treeifyBin(Node<K,V>[] tab, int hash) {
         int n, index; Node<K,V> e;
+        // MIN_TREEIFY_CAPACITY = 64
+        // 如果当前map的数组为空，或者数组长度还小于64，则选择扩充数组长度
         if (tab == null || (n = tab.length) < MIN_TREEIFY_CAPACITY)
             resize();
+            // 如果执行else if则说明数组长度已经大于64了，这个时候就使用了红黑树来处理
+            // 根据hash值和数组长度进行取模运算后，得到链表的首节点
         else if ((e = tab[index = (n - 1) & hash]) != null) {
+            // 定义首、尾节点
             TreeNode<K,V> hd = null, tl = null;
             do {
+                // 将该节点转换为 树节点
                 TreeNode<K,V> p = replacementTreeNode(e, null);
+                // 如果尾节点为空，说明还没有根节点
+
                 if (tl == null)
+                    // 首节点（根节点）指向 当前节点
                     hd = p;
                 else {
+                    // 尾节点不为空，以下两行是一个双向链表结构
+                    // 当前树节点的 前一个节点指向 尾节点
                     p.prev = tl;
+                    // 尾节点的 后一个节点指向 当前节点
                     tl.next = p;
                 }
+                // 把当前节点设为尾节点
                 tl = p;
             } while ((e = e.next) != null);
+            // 到目前为止 也只是把Node对象转换成了TreeNode对象，把单向链表转换成了双向链表
+            // 把转换后的双向链表，替换原来位置上的单向链表
             if ((tab[index] = hd) != null)
+                // table表从此节点链接成树
                 hd.treeify(tab);
         }
     }
